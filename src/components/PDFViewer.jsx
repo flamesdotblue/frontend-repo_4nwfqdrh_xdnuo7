@@ -1,189 +1,132 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import * as pdfjs from 'pdfjs-dist'
-import 'pdfjs-dist/web/pdf_viewer.css'
-import TextBox from './TextBox'
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Worker setup for pdfjs (v4 uses .mjs worker)
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+GlobalWorkerOptions.workerSrc = workerSrc;
 
-const CSS_UNITS = 96.0 / 72.0
-
+// Render pages and overlay editable text boxes.
 export default function PDFViewer({
-  file,
-  zoom,
-  textBoxes,
-  setTextBoxes,
-  selected,
-  setSelected,
+  data,
+  scale,
+  textBoxesByPage,
+  onAddTextBox,
+  onChangeTextBox,
+  onDeleteTextBox,
+  selectedBox,
+  onSelectBox,
+  onPagesInfo,
 }) {
-  const containerRef = useRef(null)
-  const [loading, setLoading] = useState(false)
-  const [numPages, setNumPages] = useState(0)
-  const [pageSizes, setPageSizes] = useState([]) // in CSS px at scale=1
+  const containerRef = useRef(null);
+  const [pages, setPages] = useState([]); // { width, height } at scale 1
+  const pdfRef = useRef(null);
 
-  const docPromise = useMemo(() => {
-    if (!file?.arrayBuffer) return null
-    return pdfjs.getDocument({ data: file.arrayBuffer }).promise
-  }, [file])
+  // Prepare a safe copy to avoid ArrayBuffer detachment issues when pdf.js transfers it to worker
+  const pdfDataForLoad = useMemo(() => (data ? new Uint8Array(data) : null), [data]);
 
+  // Load document
   useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      if (!docPromise) return
-      setLoading(true)
+    let cancelled = false;
+    async function load() {
+      if (!pdfDataForLoad) return;
       try {
-        const pdf = await docPromise
-        if (cancelled) return
-        setNumPages(pdf.numPages)
-        const sizes = []
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i)
-          const viewport = page.getViewport({ scale: 1 })
-          sizes.push({ width: viewport.width, height: viewport.height })
+        const loadingTask = getDocument({ data: pdfDataForLoad, useWorkerFetch: false });
+        const pdf = await loadingTask.promise;
+        if (cancelled) return;
+        pdfRef.current = pdf;
+        const total = pdf.numPages;
+        const pageDims = [];
+        for (let i = 1; i <= total; i++) {
+          const page = await pdf.getPage(i);
+          const vp = page.getViewport({ scale: 1 });
+          pageDims.push({ width: vp.width, height: vp.height });
         }
-        if (!cancelled) setPageSizes(sizes)
-      } catch (e) {
-        console.error(e)
-        alert('Failed to load PDF')
-      } finally {
-        setLoading(false)
+        setPages(pageDims);
+        onPagesInfo?.(pageDims);
+      } catch (err) {
+        console.error('Failed to load PDF', err);
       }
     }
-    load()
-    return () => { cancelled = true }
-  }, [docPromise])
+    load();
+    return () => { cancelled = true; };
+  }, [pdfDataForLoad, onPagesInfo]);
 
-  const ensurePageBoxes = (pageIndex) => {
-    setTextBoxes((prev) => {
-      const next = { ...prev }
-      if (!next[pageIndex]) next[pageIndex] = {}
-      return next
-    })
-  }
-
-  const addTextBox = (pageIndex, x, y) => {
-    ensurePageBoxes(pageIndex)
-    const id = crypto.randomUUID()
-    setTextBoxes((prev) => {
-      const next = { ...prev }
-      const page = next[pageIndex] ? { ...next[pageIndex] } : {}
-      page[id] = {
-        x, y, w: 160, h: 28, text: 'Edit me', fontSize: 16, fontFamily: 'Helvetica'
+  // Render each page to canvas with DPR-aware scaling
+  const canvasesRef = useRef([]);
+  useEffect(() => {
+    async function render() {
+      const pdf = pdfRef.current;
+      if (!pdf || pages.length === 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      for (let i = 1; i <= pages.length; i++) {
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale });
+        const canvas = canvasesRef.current[i - 1];
+        if (!canvas) continue;
+        const ctx = canvas.getContext('2d');
+        // Set canvas size for crisp rendering
+        canvas.width = Math.floor(vp.width * dpr);
+        canvas.height = Math.floor(vp.height * dpr);
+        canvas.style.width = `${vp.width}px`;
+        canvas.style.height = `${vp.height}px`;
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: vp,
+          transform: [dpr, 0, 0, dpr, 0, 0],
+          intent: 'display',
+        };
+        await page.render(renderContext).promise;
       }
-      next[pageIndex] = page
-      return next
-    })
-    setSelected({ id, pageIndex })
-  }
-
-  const onMove = (id, pageIndex, x, y) => {
-    setTextBoxes((prev) => ({
-      ...prev,
-      [pageIndex]: { ...prev[pageIndex], [id]: { ...prev[pageIndex][id], x, y } },
-    }))
-  }
-
-  const onChange = (id, pageIndex, patch) => {
-    setTextBoxes((prev) => ({
-      ...prev,
-      [pageIndex]: { ...prev[pageIndex], [id]: { ...prev[pageIndex][id], ...patch } },
-    }))
-  }
-
-  const renderPage = async (canvas, pageIndex) => {
-    if (!docPromise) return
-    const pdf = await docPromise
-    const page = await pdf.getPage(pageIndex + 1)
-    const viewport = page.getViewport({ scale: zoom })
-
-    const ctx = canvas.getContext('2d')
-    const dpr = Math.max(1, window.devicePixelRatio || 1)
-    canvas.width = Math.floor(viewport.width * dpr)
-    canvas.height = Math.floor(viewport.height * dpr)
-    canvas.style.width = `${viewport.width}px`
-    canvas.style.height = `${viewport.height}px`
-
-    const renderContext = {
-      canvasContext: ctx,
-      viewport: viewport.clone({ dontFlip: true, scale: zoom }),
-      transform: [dpr, 0, 0, dpr, 0, 0],
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    await page.render(renderContext).promise
-  }
+    render();
+  }, [pages, scale]);
 
   const handlePageClick = (e, pageIndex) => {
-    const pageEl = e.currentTarget
-    const rect = pageEl.getBoundingClientRect()
-    const xCss = (e.clientX - rect.left)
-    const yCss = (e.clientY - rect.top)
-    const x = xCss / zoom
-    const y = yCss / zoom
-    addTextBox(pageIndex, x, y)
-  }
+    const pageRect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - pageRect.left) / scale;
+    const y = (e.clientY - pageRect.top) / scale;
+    const defaultBox = {
+      x: Math.max(0, x - 40),
+      y: Math.max(0, y - 10),
+      w: 160,
+      h: 28,
+      text: 'Text',
+      fontSize: 14,
+      fontFamily: 'Helvetica',
+    };
+    onAddTextBox(pageIndex, defaultBox);
+  };
 
   return (
-    <div ref={containerRef} className="w-full h-full overflow-auto">
-      {loading && (
-        <div className="p-8 text-center text-gray-500">Loading PDF…</div>
-      )}
-      {!loading && !file && (
-        <div className="p-8 text-center text-gray-500">Upload a PDF to start editing</div>
-      )}
-      {!loading && file && (
-        <div className="mx-auto w-full max-w-5xl flex flex-col items-center gap-8 py-6">
-          {Array.from({ length: numPages }).map((_, i) => (
-            <PageView
-              key={i}
-              pageIndex={i}
-              pageSize={pageSizes[i]}
-              zoom={zoom}
-              renderPage={renderPage}
-              onClick={handlePageClick}
-            >
-              {textBoxes[i] && Object.entries(textBoxes[i]).map(([id, box]) => (
+    <div ref={containerRef} className="w-full flex flex-col items-center gap-6">
+      {pages.map((p, idx) => (
+        <div key={idx} className="relative shadow border border-neutral-200" style={{ width: p.width * scale }}>
+          <canvas ref={(el) => (canvasesRef.current[idx] = el)} />
+          {/* Overlay boxes */}
+          <div
+            className="absolute inset-0"
+            onMouseDown={(e) => { if (e.target === e.currentTarget) onSelectBox(null, idx); }}
+            onClick={(e) => handlePageClick(e, idx)}
+          >
+            {(textBoxesByPage[idx] || []).map((box, i) => (
+              <React.Fragment key={box.id}>
                 <TextBox
-                  key={id}
-                  id={id}
-                  pageIndex={i}
+                  id={box.id}
+                  pageIndex={idx}
                   box={box}
-                  zoom={zoom}
-                  selected={selected && selected.id === id && selected.pageIndex === i}
-                  onSelect={(id2, p) => setSelected({ id: id2, pageIndex: p })}
-                  onMove={onMove}
-                  onChange={onChange}
+                  scale={scale}
+                  selected={selectedBox && selectedBox.id === box.id && selectedBox.pageIndex === idx}
+                  onSelect={onSelectBox}
+                  onChange={onChangeTextBox}
+                  onDelete={onDeleteTextBox}
                 />
-              ))}
-            </PageView>
-          ))}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
-      )}
+      ))}
     </div>
-  )
+  );
 }
 
-function PageView({ pageIndex, pageSize, zoom, renderPage, onClick, children }) {
-  const canvasRef = useRef(null)
-  useEffect(() => {
-    if (!canvasRef.current || !pageSize) return
-    renderPage(canvasRef.current, pageIndex)
-  }, [pageIndex, pageSize, zoom])
-
-  const width = (pageSize?.width || 612) * zoom
-  const height = (pageSize?.height || 792) * zoom
-
-  return (
-    <div
-      className="relative bg-white shadow-xl border rounded-md overflow-hidden"
-      style={{ width, height }}
-      onClick={(e) => onClick(e, pageIndex)}
-    >
-      <canvas ref={canvasRef} />
-      <div className="absolute inset-0" style={{ pointerEvents: 'none' }} />
-      <div className="absolute inset-0" style={{ pointerEvents: 'auto' }}>
-        {children}
-      </div>
-    </div>
-  )
-}
+// Local import to avoid circular dependency warnings
+import TextBox from './TextBox';

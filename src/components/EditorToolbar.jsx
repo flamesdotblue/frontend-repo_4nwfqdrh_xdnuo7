@@ -1,4 +1,5 @@
-import { Download, Redo2, Undo2, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
+import React from 'react';
+import { Undo2, Redo2, ZoomIn, ZoomOut, RotateCcw, Download } from 'lucide-react';
 
 export default function EditorToolbar({
   canUndo,
@@ -8,45 +9,60 @@ export default function EditorToolbar({
   zoom,
   onZoomIn,
   onZoomOut,
-  onZoomReset,
+  onResetZoom,
   onDownload,
-  fileName,
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 p-3 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 border rounded-xl shadow-sm">
-      <div className="flex items-center gap-2">
+    <div className="sticky top-0 z-20 w-full bg-white/80 backdrop-blur border-b border-neutral-200">
+      <div className="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2">
         <button
+          className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${canUndo ? 'bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-800' : 'bg-neutral-100 border-neutral-200 text-neutral-400 cursor-not-allowed'}`}
           onClick={onUndo}
           disabled={!canUndo}
-          className={`px-3 py-2 rounded-md border ${canUndo ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}
+          title="Undo"
         >
-          <Undo2 className="h-4 w-4" />
+          <Undo2 size={16} /> Undo
         </button>
         <button
+          className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${canRedo ? 'bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-800' : 'bg-neutral-100 border-neutral-200 text-neutral-400 cursor-not-allowed'}`}
           onClick={onRedo}
           disabled={!canRedo}
-          className={`px-3 py-2 rounded-md border ${canRedo ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}
+          title="Redo"
         >
-          <Redo2 className="h-4 w-4" />
+          <Redo2 size={16} /> Redo
         </button>
-        <div className="w-px h-6 bg-gray-200 mx-1" />
-        <button onClick={onZoomOut} className="px-3 py-2 rounded-md border hover:bg-gray-50">
-          <ZoomOut className="h-4 w-4" />
+        <div className="mx-2 w-px h-6 bg-neutral-200" />
+        <button
+          className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-800"
+          onClick={onZoomOut}
+          title="Zoom out"
+        >
+          <ZoomOut size={16} />
         </button>
-        <div className="text-sm tabular-nums w-20 text-center">{Math.round(zoom * 100)}%</div>
-        <button onClick={onZoomIn} className="px-3 py-2 rounded-md border hover:bg-gray-50">
-          <ZoomIn className="h-4 w-4" />
+        <div className="px-2 text-sm text-neutral-700 min-w-[80px] text-center">{Math.round(zoom * 100)}%</div>
+        <button
+          className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-800"
+          onClick={onZoomIn}
+          title="Zoom in"
+        >
+          <ZoomIn size={16} />
         </button>
-        <button onClick={onZoomReset} className="px-3 py-2 rounded-md border hover:bg-gray-50">
-          <RotateCcw className="h-4 w-4" />
+        <button
+          className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm bg-white hover:bg-neutral-50 border-neutral-300 text-neutral-800"
+          onClick={onResetZoom}
+          title="Reset zoom"
+        >
+          <RotateCcw size={16} /> Reset
         </button>
-      </div>
-      <div className="flex items-center gap-2">
-        <button onClick={onDownload} className="px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2">
-          <Download className="h-4 w-4" />
-          <span>Download{fileName ? `: ${fileName.replace(/\.pdf$/i,'')}-edited.pdf` : ''}</span>
+        <div className="mx-2 w-px h-6 bg-neutral-200" />
+        <button
+          className="ml-auto flex items-center gap-2 px-3 py-2 rounded-md border text-sm bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+          onClick={onDownload}
+          title="Download PDF"
+        >
+          <Download size={16} /> Download
         </button>
       </div>
     </div>
-  )
+  );
 }
