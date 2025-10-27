@@ -3,8 +3,8 @@ import * as pdfjs from 'pdfjs-dist'
 import 'pdfjs-dist/web/pdf_viewer.css'
 import TextBox from './TextBox'
 
-// Worker setup for pdfjs
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`
+// Worker setup for pdfjs (v4 uses .mjs worker)
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 const CSS_UNITS = 96.0 / 72.0
 
@@ -97,14 +97,16 @@ export default function PDFViewer({
     const viewport = page.getViewport({ scale: zoom })
 
     const ctx = canvas.getContext('2d')
-    canvas.width = Math.floor(viewport.width * window.devicePixelRatio)
-    canvas.height = Math.floor(viewport.height * window.devicePixelRatio)
+    const dpr = Math.max(1, window.devicePixelRatio || 1)
+    canvas.width = Math.floor(viewport.width * dpr)
+    canvas.height = Math.floor(viewport.height * dpr)
     canvas.style.width = `${viewport.width}px`
     canvas.style.height = `${viewport.height}px`
 
     const renderContext = {
       canvasContext: ctx,
-      viewport: viewport.clone({ dontFlip: true, scale: zoom * window.devicePixelRatio }),
+      viewport: viewport.clone({ dontFlip: true, scale: zoom }),
+      transform: [dpr, 0, 0, dpr, 0, 0],
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
